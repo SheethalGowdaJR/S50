@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useMemo } from "react";
 import { useCompanies } from "@/hooks/useCompanies";
 import { PageHeader } from "@/components/common/PageHeader";

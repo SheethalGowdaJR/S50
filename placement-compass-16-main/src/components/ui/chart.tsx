@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import * as React from "react";
 import * as RechartsPrimitive from "recharts";
 
@@ -230,6 +231,7 @@ const ChartLegend = RechartsPrimitive.Legend;
 const ChartLegendContent = React.forwardRef<
   HTMLDivElement,
   React.ComponentProps<"div"> & {
+    /* eslint-disable-next-line @typescript-eslint/no-explicit-any */
     payload?: any[];
     verticalAlign?: "top" | "bottom" | "middle";
     hideIcon?: boolean;

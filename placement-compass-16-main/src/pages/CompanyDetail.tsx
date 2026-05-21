@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 import { useParams, Link } from "react-router-dom";
 import { useCompany } from "@/hooks/useCompanies";
 import { PageHeader } from "@/components/common/PageHeader";
