@@ -61,7 +61,7 @@ pipeline {
             steps {
                 dir("${FRONTEND_DIR}") {
                     echo 'Installing frontend npm dependencies...'
-                    bat 'npm ci --frozen-lockfile'
+                    sh 'npm ci --frozen-lockfile'
                     echo 'Frontend dependencies installed.'
                 }
             }
@@ -72,12 +72,12 @@ pipeline {
             steps {
                 dir("${BACKEND_DIR}") {
                     echo 'Installing backend Python dependencies...'
-                    bat '''
+                    sh '''
                         python -m venv .venv
-                        call .venv\\Scripts\\activate.bat
+                        . .venv/Scripts/activate
                         pip install --upgrade pip --quiet
                         pip install -r requirements.txt --quiet
-                        echo Backend dependencies installed.
+                        echo "Backend dependencies installed."
                     '''
                 }
             }
@@ -88,7 +88,7 @@ pipeline {
             steps {
                 dir("${FRONTEND_DIR}") {
                     echo 'Running ESLint on frontend source...'
-                    bat 'npm run lint'
+                    sh 'npm run lint'
                     echo 'ESLint passed.'
                 }
             }
@@ -99,7 +99,7 @@ pipeline {
             steps {
                 dir("${FRONTEND_DIR}") {
                     echo 'Running frontend tests (Vitest)...'
-                    bat 'npm run test'
+                    sh 'npm run test'
                     echo 'Frontend tests passed.'
                 }
             }
@@ -117,7 +117,7 @@ pipeline {
                 ]) {
                     dir("${FRONTEND_DIR}") {
                         echo 'Building Vite production bundle...'
-                        bat 'npm run build'
+                        sh 'npm run build'
                         echo 'Frontend build complete. Output: dist/'
                     }
                 }
@@ -139,8 +139,8 @@ pipeline {
             steps {
                 dir("${BACKEND_DIR}") {
                     echo 'Running backend API tests (pytest)...'
-                    bat '''
-                        call .venv\\Scripts\\activate.bat
+                    sh '''
+                        . .venv/Scripts/activate
                         pytest tests/ -v --tb=short --no-header
                     '''
                     echo 'Backend tests passed.'
@@ -158,28 +158,28 @@ pipeline {
             steps {
                 dir("${BACKEND_DIR}") {
                     echo 'Validating Agentic Orchestration Pipeline...'
-                    bat '''
-                        call .venv\\Scripts\\activate.bat
+                    sh '''
+                        . .venv/Scripts/activate
 
-                        echo Step 1: Validating langgraph.json...
+                        echo "Step 1: Validating langgraph.json..."
                         python -c "import json; cfg=json.load(open('langgraph.json')); assert 'graphs' in cfg; print('langgraph.json OK:', list(cfg['graphs'].keys()))"
 
-                        echo Step 2: Validating 163-parameter schema...
+                        echo "Step 2: Validating 163-parameter schema..."
                         python -c "from schema import PARAMETER_KEYS; print('Schema OK:', len(PARAMETER_KEYS), 'parameters')"
 
-                        echo Step 3: Validating AgentState...
+                        echo "Step 3: Validating AgentState..."
                         python -c "from state import AgentState; print('AgentState OK')"
 
-                        echo Step 4: Compiling LangGraph StateGraph...
+                        echo "Step 4: Compiling LangGraph StateGraph..."
                         python -c "from main import build_graph; g=build_graph(); print('Graph compiled OK. Nodes:', list(g.nodes.keys()))"
 
-                        echo Step 5: Validating FastAPI application...
+                        echo "Step 5: Validating FastAPI application..."
                         python -c "from app.main import app; routes=[r.path for r in app.routes]; assert '/health' in routes; print('FastAPI OK. Routes:', routes)"
 
-                        echo Step 6: Validating WorkflowService...
+                        echo "Step 6: Validating WorkflowService..."
                         python -c "from app.service import workflow_service; print('WorkflowService OK')"
 
-                        echo All Agentic Orchestration validations PASSED.
+                        echo "All Agentic Orchestration validations PASSED."
                     '''
                 }
             }
@@ -376,7 +376,7 @@ pipeline {
 
         always {
             echo 'Running post-build cleanup...'
-            bat 'docker logout 2>nul & exit 0'
+            sh 'docker logout || true'
             cleanWs()
         }
     }
