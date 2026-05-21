@@ -348,29 +348,14 @@ pipeline {
 
         success {
             echo 'Pipeline SUCCEEDED.'
-            mail(
-                to:      "${env.NOTIFICATION_EMAIL ?: 'team@example.com'}",
-                subject: "[Placement Compass] Build #${env.BUILD_NUMBER} succeeded (${env.BRANCH_NAME})",
-                body:    "Build #${env.BUILD_NUMBER} passed.\nCommit: ${GIT_SHORT_SHA}\nConsole: ${env.BUILD_URL}"
-            )
         }
 
         failure {
             echo 'Pipeline FAILED.'
-            mail(
-                to:      "${env.NOTIFICATION_EMAIL ?: 'team@example.com'}",
-                subject: "[Placement Compass] Build #${env.BUILD_NUMBER} FAILED (${env.BRANCH_NAME})",
-                body:    "Build #${env.BUILD_NUMBER} FAILED.\nCommit: ${GIT_SHORT_SHA}\nConsole: ${env.BUILD_URL}"
-            )
         }
 
         unstable {
             echo 'Pipeline UNSTABLE.'
-            mail(
-                to:      "${env.NOTIFICATION_EMAIL ?: 'team@example.com'}",
-                subject: "[Placement Compass] Build #${env.BUILD_NUMBER} UNSTABLE (${env.BRANCH_NAME})",
-                body:    "Build #${env.BUILD_NUMBER} unstable.\nCommit: ${GIT_SHORT_SHA}\nConsole: ${env.BUILD_URL}"
-            )
         }
 
         always {
