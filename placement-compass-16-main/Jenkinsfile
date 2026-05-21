@@ -46,14 +46,15 @@ pipeline {
                 echo 'Checking out source code...'
                 checkout scm
                 script {
-                    GIT_SHORT_SHA = bat(
-                        script: '@git rev-parse --short HEAD',
-                        returnStdout: true
-                    ).trim()
+                    // env.GIT_COMMIT is automatically set by Jenkins after checkout scm.
+                    // We take the first 8 characters as the short SHA.
+                    // This avoids any sh/bat returnStdout call which fails on Windows.
+                    GIT_SHORT_SHA = env.GIT_COMMIT ? env.GIT_COMMIT.take(8) : 'unknown'
                     echo "Commit: ${GIT_SHORT_SHA} | Branch: ${env.BRANCH_NAME ?: 'main'}"
                 }
             }
         }
+
 
         // ── STAGE 2: Frontend - Install Dependencies ─────────────────
         stage('Frontend: Install Dependencies') {
