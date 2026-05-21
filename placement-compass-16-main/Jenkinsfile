@@ -1,0 +1,461 @@
+///////////////////////////////////////////////////////////////
+// Jenkinsfile — Placement Compass CI/CD Pipeline
+// Declarative Pipeline Syntax
+//
+// Required Jenkins Credentials (Manage Jenkins → Credentials):
+//   dockerhub-credentials   → Username/Password (Docker Hub login)
+//   deploy-ssh-key          → SSH Private Key  (Ubuntu deploy server)
+//   supabase-url            → Secret Text      (VITE_SUPABASE_URL)
+//   supabase-anon-key       → Secret Text      (VITE_SUPABASE_ANON_KEY)
+//   backend-env-file        → Secret File      (.env with all LLM/LangSmith keys)
+//   notification-email      → Secret Text      (recipient email address)
+//
+// Required Jenkins Plugins:
+//   Pipeline, NodeJS, Docker Pipeline, SSH Agent,
+//   Credentials Binding, Email Extension
+///////////////////////////////////////////////////////////////
+
+pipeline {
+
+    agent any
+
+    // ── Tool versions configured in Jenkins → Global Tool Configuration ──
+    tools {
+        nodejs 'NodeJS-20'   // Name you gave the Node.js 20 installation
+    }
+
+    // ── Environment variables (non-secret) ───────────────────────────────
+    environment {
+        // Docker image names
+        FRONTEND_IMAGE   = 'placement-compass-frontend'
+        BACKEND_IMAGE    = 'placement-compass-backend'
+
+        // Short Git commit hash — used as an image tag
+        GIT_SHORT_SHA    = ''   // Populated in Checkout stage
+
+        // Paths relative to workspace root (where Jenkinsfile lives)
+        FRONTEND_DIR     = '.'
+        BACKEND_DIR      = 'Lang graph'
+
+        // Docker Compose file
+        COMPOSE_FILE     = 'docker-compose.yml'
+
+        // Deployment target (set DEPLOY_USER / DEPLOY_SERVER as Jenkins global env vars
+        // OR override here with non-sensitive defaults)
+        DEPLOY_USER      = 'ubuntu'
+        DEPLOY_SERVER    = "${env.DEPLOY_SERVER_IP ?: 'YOUR_SERVER_IP'}"
+        DEPLOY_PATH      = '/opt/placement-compass'
+    }
+
+    options {
+        // Keep last 10 builds; discard older ones
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+        // Abort if pipeline hangs for more than 60 minutes
+        timeout(time: 60, unit: 'MINUTES')
+        // Colour terminal output (requires AnsiColor plugin)
+        ansiColor('xterm')
+        // Do not run concurrent builds on the same branch
+        disableConcurrentBuilds()
+        timestamps()
+    }
+
+    triggers {
+        // GitHub webhook triggers this automatically on every push.
+        // Configure the webhook in GitHub → Settings → Webhooks
+        // pointing to: http://<JENKINS_URL>/github-webhook/
+        githubPush()
+    }
+
+    stages {
+
+        // ╔══════════════════════════════════════════════════╗
+        // ║  STAGE 1 — Checkout                             ║
+        // ╚══════════════════════════════════════════════════╝
+        stage('Checkout') {
+            steps {
+                echo '📥 Checking out source code...'
+                checkout scm
+
+                script {
+                    // Capture the short Git commit hash for image tagging
+                    GIT_SHORT_SHA = sh(
+                        script: "git rev-parse --short HEAD",
+                        returnStdout: true
+                    ).trim()
+                    echo "✅ Commit: ${GIT_SHORT_SHA}  |  Branch: ${env.BRANCH_NAME ?: 'unknown'}"
+                }
+            }
+        }
+
+        // ╔══════════════════════════════════════════════════╗
+        // ║  STAGE 2 — Install Dependencies (parallel)      ║
+        // ╚══════════════════════════════════════════════════╝
+        stage('Install Dependencies') {
+            parallel {
+
+                stage('Frontend: npm install') {
+                    steps {
+                        dir("${FRONTEND_DIR}") {
+                            echo '📦 Installing frontend dependencies...'
+                            sh 'npm ci --frozen-lockfile'
+                        }
+                    }
+                }
+
+                stage('Backend: pip install') {
+                    steps {
+                        dir("${BACKEND_DIR}") {
+                            echo '🐍 Installing backend Python dependencies...'
+                            sh '''
+                                python3 -m venv .venv
+                                . .venv/bin/activate
+                                pip install --upgrade pip --quiet
+                                pip install -r requirements.txt --quiet
+                            '''
+                        }
+                    }
+                }
+
+            }
+        }
+
+        // ╔══════════════════════════════════════════════════╗
+        // ║  STAGE 3 — Lint (parallel)                      ║
+        // ╚══════════════════════════════════════════════════╝
+        stage('Lint') {
+            parallel {
+
+                stage('Frontend: ESLint') {
+                    steps {
+                        dir("${FRONTEND_DIR}") {
+                            echo '🔍 Running ESLint...'
+                            sh 'npm run lint'
+                        }
+                    }
+                }
+
+                stage('Backend: flake8') {
+                    steps {
+                        dir("${BACKEND_DIR}") {
+                            echo '🔍 Running flake8 on backend source...'
+                            sh '''
+                                . .venv/bin/activate
+                                pip install flake8 --quiet
+                                flake8 app/ --max-line-length=120 --ignore=E501,W503 || true
+                            '''
+                            // || true: lint warnings do not fail the pipeline;
+                            // to enforce strict linting remove "|| true"
+                        }
+                    }
+                }
+
+            }
+        }
+
+        // ╔══════════════════════════════════════════════════╗
+        // ║  STAGE 4 — Test Suites (parallel, fail-fast)    ║
+        // ╚══════════════════════════════════════════════════╝
+        stage('Test') {
+            parallel {
+
+                stage('Frontend: Vitest') {
+                    steps {
+                        dir("${FRONTEND_DIR}") {
+                            echo '🧪 Running frontend tests (Vitest)...'
+                            sh 'npm run test'
+                        }
+                    }
+                    post {
+                        failure {
+                            echo '❌ Frontend tests FAILED. Aborting pipeline.'
+                        }
+                    }
+                }
+
+                stage('Backend: pytest') {
+                    steps {
+                        dir("${BACKEND_DIR}") {
+                            echo '🧪 Running backend API tests (pytest)...'
+                            sh '''
+                                . .venv/bin/activate
+                                pytest tests/ -v --tb=short --no-header
+                            '''
+                        }
+                    }
+                    post {
+                        failure {
+                            echo '❌ Backend tests FAILED. Aborting pipeline.'
+                        }
+                    }
+                }
+
+            }
+        }
+
+        // ╔══════════════════════════════════════════════════╗
+        // ║  STAGE 5 — Build Frontend Bundle                ║
+        // ╚══════════════════════════════════════════════════╝
+        stage('Build Frontend Bundle') {
+            steps {
+                // Inject Supabase public keys as build-time env vars
+                withCredentials([
+                    string(credentialsId: 'supabase-url',      variable: 'VITE_SUPABASE_URL'),
+                    string(credentialsId: 'supabase-anon-key', variable: 'VITE_SUPABASE_ANON_KEY')
+                ]) {
+                    dir("${FRONTEND_DIR}") {
+                        echo '🏗️  Building Vite production bundle...'
+                        sh 'npm run build'
+                    }
+                }
+            }
+            post {
+                success {
+                    // Archive the built static assets as a Jenkins artefact
+                    archiveArtifacts artifacts: 'dist/**/*', fingerprint: true, allowEmptyArchive: false
+                    echo '📦 Frontend dist/ archived.'
+                }
+            }
+        }
+
+        // ╔══════════════════════════════════════════════════╗
+        // ║  STAGE 6 — Build & Push Docker Images           ║
+        // ╚══════════════════════════════════════════════════╝
+        stage('Build & Push Docker Images') {
+            when {
+                // Only build and push images on main or release branches
+                anyOf {
+                    branch 'main'
+                    branch 'release/*'
+                }
+            }
+            steps {
+                withCredentials([
+                    usernamePassword(
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    ),
+                    string(credentialsId: 'supabase-url',      variable: 'VITE_SUPABASE_URL'),
+                    string(credentialsId: 'supabase-anon-key', variable: 'VITE_SUPABASE_ANON_KEY')
+                ]) {
+                    script {
+                        def tags = [
+                            'latest',
+                            "${env.BUILD_NUMBER}",
+                            "${GIT_SHORT_SHA}"
+                        ]
+
+                        echo "🐳 Logging in to Docker Hub as ${DOCKER_USER}..."
+                        sh 'echo "${DOCKER_PASS}" | docker login -u "${DOCKER_USER}" --password-stdin'
+
+                        // ── Build Frontend Image ──────────────────────────
+                        echo '🔨 Building frontend Docker image...'
+                        sh """
+                            docker build \
+                                --build-arg VITE_SUPABASE_URL="\${VITE_SUPABASE_URL}" \
+                                --build-arg VITE_SUPABASE_ANON_KEY="\${VITE_SUPABASE_ANON_KEY}" \
+                                --file ./Dockerfile \
+                                --tag ${DOCKER_USER}/${FRONTEND_IMAGE}:${GIT_SHORT_SHA} \
+                                .
+                        """
+                        tags.each { tag ->
+                            sh "docker tag ${DOCKER_USER}/${FRONTEND_IMAGE}:${GIT_SHORT_SHA} ${DOCKER_USER}/${FRONTEND_IMAGE}:${tag}"
+                        }
+
+                        // ── Build Backend Image ───────────────────────────
+                        echo '🔨 Building backend Docker image...'
+                        sh """
+                            docker build \
+                                --file "./${BACKEND_DIR}/Dockerfile" \
+                                --tag ${DOCKER_USER}/${BACKEND_IMAGE}:${GIT_SHORT_SHA} \
+                                "./${BACKEND_DIR}"
+                        """
+                        tags.each { tag ->
+                            sh "docker tag ${DOCKER_USER}/${BACKEND_IMAGE}:${GIT_SHORT_SHA} ${DOCKER_USER}/${BACKEND_IMAGE}:${tag}"
+                        }
+
+                        // ── Push All Tags ─────────────────────────────────
+                        echo '📤 Pushing images to Docker Hub...'
+                        tags.each { tag ->
+                            sh "docker push ${DOCKER_USER}/${FRONTEND_IMAGE}:${tag}"
+                            sh "docker push ${DOCKER_USER}/${BACKEND_IMAGE}:${tag}"
+                        }
+
+                        echo "✅ Images pushed: latest | ${env.BUILD_NUMBER} | ${GIT_SHORT_SHA}"
+                    }
+                }
+            }
+            post {
+                always {
+                    // Remove dangling images to keep the Jenkins node clean
+                    sh 'docker image prune -f || true'
+                }
+            }
+        }
+
+        // ╔══════════════════════════════════════════════════╗
+        // ║  STAGE 7 — Deploy to Ubuntu Server              ║
+        // ╚══════════════════════════════════════════════════╝
+        stage('Deploy') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'release/*'
+                }
+            }
+            steps {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId:    'deploy-ssh-key',
+                        keyFileVariable:  'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
+                    ),
+                    usernamePassword(
+                        credentialsId: 'dockerhub-credentials',
+                        usernameVariable: 'DOCKER_USER',
+                        passwordVariable: 'DOCKER_PASS'
+                    ),
+                    file(credentialsId: 'backend-env-file', variable: 'BACKEND_ENV_FILE')
+                ]) {
+                    script {
+                        def remote = "${DEPLOY_USER}@${DEPLOY_SERVER}"
+                        def sshOpts = "-i ${SSH_KEY_FILE} -o StrictHostKeyChecking=no"
+
+                        echo "🚀 Deploying to ${remote}..."
+
+                        // 1. Copy docker-compose.yml and the backend .env to the server
+                        sh """
+                            scp ${sshOpts} ${COMPOSE_FILE}         ${remote}:${DEPLOY_PATH}/docker-compose.yml
+                            scp ${sshOpts} \${BACKEND_ENV_FILE}    ${remote}:${DEPLOY_PATH}/.env
+                            scp ${sshOpts} scripts/deploy.sh        ${remote}:${DEPLOY_PATH}/deploy.sh
+                            scp ${sshOpts} scripts/rollback.sh      ${remote}:${DEPLOY_PATH}/rollback.sh
+                            scp ${sshOpts} scripts/health_check.sh  ${remote}:${DEPLOY_PATH}/health_check.sh
+                            scp ${sshOpts} scripts/smoke_test.sh    ${remote}:${DEPLOY_PATH}/smoke_test.sh
+                        """
+
+                        // 2. Execute the deployment script on the remote server
+                        sh """
+                            ssh ${sshOpts} ${remote} \\
+                                "export DOCKER_USER='${DOCKER_USER}' \\
+                                 export DOCKER_PASS='${DOCKER_PASS}' \\
+                                 export IMAGE_TAG='${GIT_SHORT_SHA}' \\
+                                 export DEPLOY_PATH='${DEPLOY_PATH}' \\
+                                 bash ${DEPLOY_PATH}/deploy.sh"
+                        """
+                    }
+                }
+            }
+        }
+
+        // ╔══════════════════════════════════════════════════╗
+        // ║  STAGE 8 — Post-Deployment Health & Smoke Tests ║
+        // ╚══════════════════════════════════════════════════╝
+        stage('Health Check & Smoke Tests') {
+            when {
+                anyOf {
+                    branch 'main'
+                    branch 'release/*'
+                }
+            }
+            steps {
+                withCredentials([
+                    sshUserPrivateKey(
+                        credentialsId:    'deploy-ssh-key',
+                        keyFileVariable:  'SSH_KEY_FILE',
+                        usernameVariable: 'SSH_USER'
+                    )
+                ]) {
+                    script {
+                        def remote = "${DEPLOY_USER}@${DEPLOY_SERVER}"
+                        def sshOpts = "-i ${SSH_KEY_FILE} -o StrictHostKeyChecking=no"
+
+                        echo '🩺 Running health checks on deployed services...'
+                        sh "ssh ${sshOpts} ${remote} 'bash ${DEPLOY_PATH}/health_check.sh'"
+
+                        echo '💨 Running smoke tests against live endpoints...'
+                        sh "ssh ${sshOpts} ${remote} 'bash ${DEPLOY_PATH}/smoke_test.sh'"
+                    }
+                }
+            }
+            post {
+                failure {
+                    echo '🔴 Health/smoke tests failed — triggering automatic rollback...'
+                    withCredentials([
+                        sshUserPrivateKey(
+                            credentialsId:    'deploy-ssh-key',
+                            keyFileVariable:  'SSH_KEY_FILE',
+                            usernameVariable: 'SSH_USER'
+                        )
+                    ]) {
+                        sh """
+                            ssh -i ${SSH_KEY_FILE} -o StrictHostKeyChecking=no \\
+                                ${DEPLOY_USER}@${DEPLOY_SERVER} \\
+                                'bash ${DEPLOY_PATH}/rollback.sh'
+                        """
+                    }
+                }
+            }
+        }
+
+    } // end stages
+
+    // ── Post-Pipeline Notifications & Cleanup ────────────────────────────
+    post {
+
+        success {
+            echo '✅ Pipeline SUCCEEDED.'
+            mail(
+                to:      "${env.NOTIFICATION_EMAIL ?: 'team@example.com'}",
+                subject: "✅ [Placement Compass] Build #${env.BUILD_NUMBER} succeeded (${env.BRANCH_NAME})",
+                body:    """\
+Build #${env.BUILD_NUMBER} completed successfully.
+Branch   : ${env.BRANCH_NAME}
+Commit   : ${GIT_SHORT_SHA}
+Image Tag: ${GIT_SHORT_SHA}
+Console  : ${env.BUILD_URL}
+"""
+            )
+        }
+
+        failure {
+            echo '❌ Pipeline FAILED.'
+            mail(
+                to:      "${env.NOTIFICATION_EMAIL ?: 'team@example.com'}",
+                subject: "❌ [Placement Compass] Build #${env.BUILD_NUMBER} FAILED (${env.BRANCH_NAME})",
+                body:    """\
+Build #${env.BUILD_NUMBER} FAILED.
+Branch : ${env.BRANCH_NAME}
+Commit : ${GIT_SHORT_SHA}
+Console: ${env.BUILD_URL}
+
+Please investigate immediately.
+"""
+            )
+        }
+
+        unstable {
+            echo '⚠️  Pipeline UNSTABLE.'
+            mail(
+                to:      "${env.NOTIFICATION_EMAIL ?: 'team@example.com'}",
+                subject: "⚠️  [Placement Compass] Build #${env.BUILD_NUMBER} UNSTABLE (${env.BRANCH_NAME})",
+                body:    """\
+Build #${env.BUILD_NUMBER} is unstable (tests may have flapped).
+Branch : ${env.BRANCH_NAME}
+Commit : ${GIT_SHORT_SHA}
+Console: ${env.BUILD_URL}
+"""
+            )
+        }
+
+        always {
+            echo '🧹 Running post-build cleanup...'
+            // Remove the venv created for the backend tests
+            sh "rm -rf '${BACKEND_DIR}/.venv' || true"
+            // Clean Docker credentials from daemon
+            sh 'docker logout || true'
+            // Clean the Jenkins workspace to free disk space
+            cleanWs()
+        }
+    }
+
+} // end pipeline
