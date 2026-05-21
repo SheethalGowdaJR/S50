@@ -22,10 +22,8 @@ pipeline {
 
     agent any
 
-    // ── Tool versions configured in Jenkins → Global Tool Configuration ──
-    tools {
-        nodejs 'NodeJS-20'   // Name given to Node.js 20 in Global Tool Configuration
-    }
+    // NOTE: npm/node must be installed on the Jenkins agent and available in PATH.
+    // Install Node.js directly on the Jenkins server: https://nodejs.org/en/download
 
     // ── Environment variables (non-secret) ───────────────────────────────
     environment {
@@ -62,7 +60,6 @@ pipeline {
     options {
         buildDiscarder(logRotator(numToKeepStr: '10'))
         timeout(time: 60, unit: 'MINUTES')
-        ansiColor('xterm')
         disableConcurrentBuilds()
         timestamps()
     }
