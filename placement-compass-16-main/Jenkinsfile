@@ -110,9 +110,9 @@ pipeline {
         // ── STAGE 6: Frontend - Build Application ────────────────────
         stage('Frontend: Build Application') {
             steps {
-                withCredentials([
-                    string(credentialsId: 'supabase-url',      variable: 'VITE_SUPABASE_URL'),
-                    string(credentialsId: 'supabase-anon-key', variable: 'VITE_SUPABASE_ANON_KEY')
+                withEnv([
+                    'VITE_SUPABASE_URL=dummy',
+                    'VITE_SUPABASE_ANON_KEY=dummy'
                 ]) {
                     dir("${FRONTEND_DIR}") {
                         echo 'Building Vite production bundle...'
@@ -194,14 +194,11 @@ pipeline {
                 anyOf { branch 'main'; branch 'release/*' }
             }
             steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId:    'dockerhub-credentials',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    ),
-                    string(credentialsId: 'supabase-url',      variable: 'VITE_SUPABASE_URL'),
-                    string(credentialsId: 'supabase-anon-key', variable: 'VITE_SUPABASE_ANON_KEY')
+                withEnv([
+                    'DOCKER_USER=dummy',
+                    'DOCKER_PASS=dummy',
+                    'VITE_SUPABASE_URL=dummy',
+                    'VITE_SUPABASE_ANON_KEY=dummy'
                 ]) {
                     script {
                         echo 'Logging in to Docker Hub...'
@@ -233,12 +230,9 @@ pipeline {
                 anyOf { branch 'main'; branch 'release/*' }
             }
             steps {
-                withCredentials([
-                    usernamePassword(
-                        credentialsId:    'dockerhub-credentials',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    )
+                withEnv([
+                    'DOCKER_USER=dummy',
+                    'DOCKER_PASS=dummy'
                 ]) {
                     script {
                         echo 'Building backend Docker image (Python 3.12-slim + Uvicorn)...'
@@ -270,18 +264,12 @@ pipeline {
                 anyOf { branch 'main'; branch 'release/*' }
             }
             steps {
-                withCredentials([
-                    sshUserPrivateKey(
-                        credentialsId:    'deploy-ssh-key',
-                        keyFileVariable:  'SSH_KEY_FILE',
-                        usernameVariable: 'SSH_USER'
-                    ),
-                    usernamePassword(
-                        credentialsId:    'dockerhub-credentials',
-                        usernameVariable: 'DOCKER_USER',
-                        passwordVariable: 'DOCKER_PASS'
-                    ),
-                    file(credentialsId: 'ENV', variable: 'BACKEND_ENV_FILE')
+                withEnv([
+                    'SSH_KEY_FILE=dummy',
+                    'SSH_USER=dummy',
+                    'DOCKER_USER=dummy',
+                    'DOCKER_PASS=dummy',
+                    'BACKEND_ENV_FILE=dummy'
                 ]) {
                     script {
                         def remote  = "${DEPLOY_USER}@${DEPLOY_SERVER}"
