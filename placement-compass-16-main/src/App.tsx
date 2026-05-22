@@ -16,6 +16,9 @@ import Analytics from "./pages/Analytics";
 import CompanyDetail from "./pages/CompanyDetail";
 import HiringRounds from "./pages/HiringRounds";
 import Innovox from "./pages/Innovox";
+import PlacementDigitalTwinSimulator from "./pages/PlacementDigitalTwinSimulator";
+import CareerMatchScore from "./pages/CareerMatchScore";
+import SalaryIntelligence from "./pages/SalaryIntelligence";
 
 const queryClient = new QueryClient();
 
@@ -38,6 +41,9 @@ const App = () => (
             <Route path="/company/:id" element={<CompanyDetail />} />
             <Route path="/hiring-rounds" element={<HiringRounds />} />
             <Route path="/innovox" element={<Innovox />} />
+            <Route path="/digital-twin" element={<PlacementDigitalTwinSimulator />} />
+            <Route path="/career-match-score" element={<CareerMatchScore />} />
+            <Route path="/salary-package-intelligence" element={<SalaryIntelligence />} />
           </Route>
           <Route path="*" element={<NotFound />} />
         </Routes>

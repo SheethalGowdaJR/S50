@@ -26,7 +26,7 @@ export function CompanyCard({ company }: { company: Company }) {
   return (
     <Link
       to={`/company/${company.company_id}`}
-      className="group block rounded-xl border border-border bg-surface p-5 hover:shadow-elevated hover:border-brand/30 transition-all"
+      className="group relative block rounded-xl border border-border bg-surface p-5 hover:shadow-elevated hover:border-brand/30 transition-all"
     >
       <div className="flex items-start gap-3 mb-4">
         <div className="h-11 w-11 rounded-lg bg-brand-soft grid place-items-center overflow-hidden shrink-0">

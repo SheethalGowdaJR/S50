@@ -6,6 +6,8 @@ import { EmptyState } from "@/components/common/EmptyState";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { ArrowLeft } from "lucide-react";
 import type { Company } from "@/types/company";
+import { HiringProcessVisualizer } from "@/components/companies/HiringProcessVisualizer";
+import { RedFlagPanel } from "@/components/companies/RedFlagPanel";
 
 const TAB_MAPPINGS: Record<string, (keyof Company)[]> = {
   Overview: [
@@ -72,7 +74,6 @@ function FieldRow({ label, value }: { label: string; value: any }) {
   if (value == null || value === "") return null;
   const strValue = Array.isArray(value) ? value.join(", ") : String(value);
 
-  // Format label: "company_id" -> "Company Id"
   const formattedLabel = label
     .split("_")
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
@@ -106,6 +107,9 @@ export default function CompanyDetail() {
         <ArrowLeft className="h-4 w-4 mr-1" /> Back to companies
       </Link>
       <PageHeader eyebrow={String(company.category ?? "Company")} title={String(company.name)} description={String(company.short_name ?? "")} />
+
+      <RedFlagPanel company={company} />
+      <HiringProcessVisualizer company={company} />
 
       <Tabs defaultValue={TABS[0]} className="w-full">
         <div className="sticky top-0 lg:top-0 z-10 bg-surface-muted -mx-4 sm:-mx-6 lg:-mx-8 px-4 sm:px-6 lg:px-8 py-2 border-b border-border">

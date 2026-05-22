@@ -10,6 +10,9 @@ import {
   Sparkles,
   Menu,
   X,
+  Cpu,
+  Target,
+  IndianRupee
 } from "lucide-react";
 import { useState } from "react";
 import { UserProfile } from "./UserProfile";
@@ -24,6 +27,9 @@ const nav = [
   { to: "/analytics", label: "Analytics", icon: BarChart3 },
   { to: "/hiring-rounds", label: "Hiring Rounds", icon: ListChecks },
   { to: "/innovox", label: "Innovox", icon: Sparkles },
+  { to: "/digital-twin", label: "Digital Twin", icon: Cpu },
+  { to: "/career-match-score", label: "AI Career Match", icon: Target },
+  { to: "/salary-package-intelligence", label: "Salary Intelligence", icon: IndianRupee },
 ];
 
 export default function AppLayout() {

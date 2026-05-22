@@ -1,15 +1,126 @@
+import { useMemo } from "react";
 import { PageHeader } from "@/components/common/PageHeader";
 import { useCompanies } from "@/hooks/useCompanies";
 import { Sparkles, Cpu, TrendingUp, Lightbulb, ArrowUpRight } from "lucide-react";
 
-const PANELS = [
-  { icon: Cpu, title: "Emerging Tech Trends", body: "Aggregated tech_stack and ai_ml_adoption_level signals across recruiting partners." },
-  { icon: TrendingUp, title: "High-growth Companies", body: "Ranked by yoy_growth_rate and hiring_velocity from public.company." },
-  { icon: Lightbulb, title: "Skill Demand Insights", body: "Most-requested skills derived from skill_relevance frequency." },
-];
-
 export default function Innovox() {
   const { data: companies = [] } = useCompanies();
+
+  const insights = useMemo(() => {
+    // 1. Emerging Tech Trends
+    const techCounts: Record<string, number> = {};
+    companies.forEach(c => {
+      if (!c.tech_stack) return;
+      try {
+        const stacks = Array.isArray(c.tech_stack) ? c.tech_stack : JSON.parse(c.tech_stack);
+        if (Array.isArray(stacks)) {
+          stacks.forEach(t => { techCounts[t] = (techCounts[t] || 0) + 1; });
+        }
+      } catch(e) {
+        if (typeof c.tech_stack === 'string') {
+          techCounts[c.tech_stack] = (techCounts[c.tech_stack] || 0) + 1;
+        }
+      }
+    });
+    const topTech = Object.entries(techCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(entry => entry[0]);
+
+    // 2. High-growth Companies
+    const highGrowth = companies
+      .filter(c => {
+        const yoy = typeof c.yoy_growth_rate === 'string' ? parseFloat(c.yoy_growth_rate) : (c.yoy_growth_rate || 0);
+        return yoy > 0 && c.hiring_velocity === "High";
+      })
+      .sort((a, b) => {
+        const aYoy = typeof a.yoy_growth_rate === 'string' ? parseFloat(a.yoy_growth_rate) : (a.yoy_growth_rate || 0);
+        const bYoy = typeof b.yoy_growth_rate === 'string' ? parseFloat(b.yoy_growth_rate) : (b.yoy_growth_rate || 0);
+        return bYoy - aYoy;
+      })
+      .slice(0, 3);
+
+    // 3. Skill Demand Insights
+    const skillCounts: Record<string, number> = {};
+    companies.forEach(c => {
+      if (!c.skill_relevance) return;
+      try {
+        const skills = Array.isArray(c.skill_relevance) ? c.skill_relevance : JSON.parse(c.skill_relevance);
+        if (Array.isArray(skills)) {
+          skills.forEach(s => { skillCounts[s] = (skillCounts[s] || 0) + 1; });
+        }
+      } catch(e) {
+        if (typeof c.skill_relevance === 'string') {
+          const splits = c.skill_relevance.split(',').map(s => s.trim());
+          splits.forEach(s => { skillCounts[s] = (skillCounts[s] || 0) + 1; });
+        }
+      }
+    });
+    const topSkills = Object.entries(skillCounts)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 5)
+      .map(entry => entry[0]);
+
+    return { topTech, highGrowth, topSkills };
+  }, [companies]);
+
+  const PANELS = [
+    { 
+      icon: Cpu, 
+      title: "Emerging Tech Trends", 
+      body: "Aggregated tech_stack signals across recruiting partners.",
+      content: insights.topTech.length > 0 ? (
+        <div className="flex flex-wrap gap-2 mt-4">
+          {insights.topTech.map(t => (
+            <span key={t} className="text-xs bg-muted text-muted-foreground px-2 py-1 rounded-md border border-border">
+              {t}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 h-24 rounded-md border border-dashed border-border grid place-items-center text-xs text-muted-foreground">
+          No tech data available
+        </div>
+      )
+    },
+    { 
+      icon: TrendingUp, 
+      title: "High-growth Companies", 
+      body: "Companies ranked by positive growth and high hiring velocity.",
+      content: insights.highGrowth.length > 0 ? (
+        <div className="flex flex-col gap-2 mt-4">
+          {insights.highGrowth.map(c => (
+            <div key={c.company_id} className="flex justify-between items-center text-xs bg-muted/50 p-2 rounded-md border border-border">
+              <span className="font-medium truncate mr-2">{c.name}</span>
+              <span className="text-green-600 font-semibold">{c.yoy_growth_rate}% YoY</span>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 h-24 rounded-md border border-dashed border-border grid place-items-center text-xs text-muted-foreground">
+          No growth data available
+        </div>
+      )
+    },
+    { 
+      icon: Lightbulb, 
+      title: "Skill Demand Insights", 
+      body: "Most-requested skills derived from skill_relevance frequency.",
+      content: insights.topSkills.length > 0 ? (
+        <div className="flex flex-wrap gap-2 mt-4">
+          {insights.topSkills.map(s => (
+            <span key={s} className="text-xs bg-brand/10 text-brand px-2 py-1 rounded-md font-medium border border-brand/20">
+              {s}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-4 h-24 rounded-md border border-dashed border-border grid place-items-center text-xs text-muted-foreground">
+          No skills data available
+        </div>
+      )
+    },
+  ];
 
   return (
     <div>
@@ -41,8 +152,8 @@ export default function Innovox() {
       </div>
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {PANELS.map(({ icon: Icon, title, body }) => (
-          <div key={title} className="group rounded-xl border border-border bg-surface p-5 hover:shadow-elevated transition-all">
+        {PANELS.map(({ icon: Icon, title, body, content }) => (
+          <div key={title} className="group rounded-xl border border-border bg-surface p-5 hover:shadow-elevated transition-all flex flex-col">
             <div className="flex items-start justify-between mb-3">
               <div className="h-10 w-10 rounded-lg bg-brand-soft text-brand grid place-items-center group-hover:bg-gradient-brand group-hover:text-brand-foreground transition-all">
                 <Icon className="h-5 w-5" />
@@ -50,10 +161,8 @@ export default function Innovox() {
               <ArrowUpRight className="h-4 w-4 text-muted-foreground group-hover:text-brand transition-colors" />
             </div>
             <div className="font-display font-semibold">{title}</div>
-            <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed">{body}</p>
-            <div className="mt-4 h-24 rounded-md border border-dashed border-border grid place-items-center text-xs text-muted-foreground">
-              Awaiting data
-            </div>
+            <p className="text-xs text-muted-foreground mt-1.5 leading-relaxed flex-grow">{body}</p>
+            {content}
           </div>
         ))}
       </div>
